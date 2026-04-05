@@ -6,17 +6,28 @@ const morganMiddleware = require("./middlewares/morgan.middleware");
 const config = require("./config");
 const logger = require("./utils/logging");
 const handleException = require("./utils/exceptions");
-
+const worker = require("./worker");
 const {port , corsOption , name } = config.getConfig().app;
 const app = express();
+const connection = require("./config/databaseMonogo");
 app.use(morganMiddleware)
 
 app.use(express.json({limit: '50mb'}));
 app.use(express.urlencoded({ extended: true  , limit: '50mb'}));
 app.use(cors(corsOption));
 app.use(cookieParser());
+const startWorker = async () => {
+    try {
+        await worker.connection();
+        await connection();
+    } catch (error) {
+        logger.error(`Error starting worker: ${error.message}`);
+        throw error;
+    }
+};
 
 routes(app);
-app.use(handleException)
+app.use(handleException);
 
-module.exports = app
+module.exports = app;
+module.exports.startApp = startWorker;
