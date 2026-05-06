@@ -1,187 +1,257 @@
+import { useEffect, useMemo, useState } from "react";
+import { CATEGORIES, METRIC_OPTIONS, OPERATOR_OPTIONS } from "../../../constants/ruleConfig";
+import { Plus, Pencil, X } from "lucide-react";
 
-import { Users, MapPin, BarChart3, Plus } from 'lucide-react';
-import { useState } from 'react';
-
-const CUSTOM_OPTION_VALUE = '__custom__';
-
-const CATEGORIES = {
-  RETENTION: {
-    id: 'retention',
-    label: 'Hội viên',
-    icon: Users,
-    iconClass: 'text-indigo-500',
-    unit: 'ngày',
-    thresholdLabel: 'Số ngày đến tập trong 30 ngày gần nhất',
-    valuePlaceholder: 'Ví dụ: 8',
-    conditionOptions: [
-      'Nhóm đi tập ít',
-      'Nhóm đi tập đều',
-      'Nhóm đi tập thường xuyên'
-    ],
-    actionOptions: [
-      'Nhắc lịch tập qua Zalo',
-      'Gọi điện tư vấn lộ trình tập',
-      'Tặng ưu đãi gói PT cá nhân'
-    ]
-  },
-  ZONE: {
-    id: 'zone',
-    label: 'Khu vực',
-    icon: MapPin,
-    iconClass: 'text-teal-500',
-    unit: 'người',
-    thresholdLabel: 'Số khách trong khu vực',
-    valuePlaceholder: 'Ví dụ: 20',
-    conditionOptions: [
-      'Khu máy chạy bộ',
-      'Khu vực thanh toán',
-      'Khu tạ'
-    ],
-    actionOptions: [
-      'Thông báo quản lý',
-      'Điều phối thêm nhân sự',
-      'Mở thêm quầy phục vụ'
-    ]
-  },
-  REVENUE: {
-    id: 'revenue',
-    label: 'Doanh thu ',
-    icon: BarChart3,
-    iconClass: 'text-amber-500',
-    unit: 'VNĐ',
-    thresholdLabel: 'Giá trị doanh thu ngưỡng',
-    valuePlaceholder: 'Ví dụ: 5000000',
-    conditionOptions: [
-      'Chi tiêu tích lũy',
-      'Giá trị đơn trung bình',
-      'Doanh thu theo tháng'
-    ],
-    actionOptions: [
-      'Phân tệp VIP',
-      'Phân tệp Tiềm năng',
-      'Phân tệp Cần kích hoạt lại'
-    ]
-  }
+const EMPTY_FORM = {
+  category: "",
+  ruleName: "",
+  metricName: "",
+  operator: ">",
+  threshold: "",
+  zoneName: "",
+  action: "",
 };
 
-const RuleForm = ({ onAdd, category }) => {
-  const [formData, setFormData] = useState({ condition: '', conditionCustom: '', value: '', action: '', actionCustom: '' });
-  const config = CATEGORIES[category.toUpperCase()] || CATEGORIES.RETENTION;
-  // If user selects "Thêm mới...", use the free-text input instead of dropdown value.
-  const selectedCondition = formData.condition === CUSTOM_OPTION_VALUE ? formData.conditionCustom.trim() : formData.condition;
-  const selectedAction = formData.action === CUSTOM_OPTION_VALUE ? formData.actionCustom.trim() : formData.action;
+const RuleForm = ({
+  onAdd,
+  onUpdate,
+  onCancelEdit,
+  editingRule = null,       // rule đang được edit — null = create mode
+  categories = ["retention"],
+  zones = [],               // zones từ DB, truyền xuống từ parent
+  showZoneField = true,
+  requireZoneField = false,
+}) => {
+  const isEditMode = Boolean(editingRule);
+  const normalizedCategories = Array.isArray(categories) && categories.length > 0 ? categories : ["retention"];
+  const defaultCategory = normalizedCategories[0];
+
+  const [formData, setFormData] = useState({ ...EMPTY_FORM, category: defaultCategory });
+
+  // Khi editingRule thay đổi → pre-fill form
+  useEffect(() => {
+    if (editingRule) {
+      setFormData({
+        category:   editingRule.category   || defaultCategory,
+        ruleName:   editingRule.ruleName   || "",
+        metricName: editingRule.logic?.metricName || "",
+        operator:   editingRule.logic?.operator   || ">",
+        threshold:  editingRule.logic?.threshold  ?? "",
+        zoneName:   editingRule.zoneId     || editingRule.zoneName || "",
+        action:     editingRule.action     || "",
+      });
+    } else {
+      setFormData({ ...EMPTY_FORM, category: defaultCategory });
+    }
+  }, [editingRule, defaultCategory]);
+
+  // Reset category nếu không hợp lệ
+  useEffect(() => {
+    if (!normalizedCategories.includes(formData.category)) {
+      setFormData((prev) => ({ ...prev, category: defaultCategory, action: "" }));
+    }
+  }, [defaultCategory, formData.category, normalizedCategories]);
+
+  const currentCategory = normalizedCategories.includes(formData.category) ? formData.category : defaultCategory;
+  const config = CATEGORIES[currentCategory.toUpperCase()] || CATEGORIES.RETENTION;
+
+  const selectedMetric = useMemo(
+    () => METRIC_OPTIONS.find((item) => item.value === formData.metricName),
+    [formData.metricName]
+  );
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // Keep validation simple: only submit when all business fields are present.
-    if (!selectedCondition || !formData.value || !selectedAction) return;
+    if (!formData.ruleName || !formData.metricName || !formData.operator || formData.threshold === "" || !formData.action) return;
+    if (requireZoneField && !formData.zoneName) return;
 
-    onAdd({
-      condition: selectedCondition,
-      value: Number(formData.value),
-      action: selectedAction,
-      category: category.toLowerCase(),
-      unit: config.unit,
-      isActive: true
-    });
-    setFormData({ condition: '', conditionCustom: '', value: '', action: '', actionCustom: '' });
+    const rulePayload = {
+      ruleName:   formData.ruleName.trim(),
+      metricName: formData.metricName,
+      operator:   formData.operator,
+      threshold:  Number(formData.threshold),
+      zoneName:   formData.zoneName || "",
+      zoneId:     formData.zoneName || "",
+      action:     formData.action,
+      category:   currentCategory.toLowerCase(),
+      unit:       selectedMetric?.unit || "",
+      isActive:   true,
+    };
+
+    if (isEditMode) {
+      // Edit mode — truyền ruleId để upsert đúng rule
+      onUpdate({ ...rulePayload, ruleId: editingRule.ruleId });
+    } else {
+      onAdd(rulePayload);
+    }
+
+    setFormData({ ...EMPTY_FORM, category: defaultCategory });
   };
 
+  const inputClass = "w-full bg-muted/50 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all duration-200";
+
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm sticky top-4">
-      <div className="flex items-center gap-2 mb-6">
-        <config.icon className={config.iconClass} size={20} />
-        <h3 className="font-medium tracking-tight text-slate-900">Thêm quy tắc {config.label}</h3>
-      </div>
-      
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-xs font-medium text-slate-400 mb-2 tracking-tight">Điều kiện</label>
-          <select 
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500 tracking-tight"
-            value={formData.condition}
-            onChange={(e) => setFormData({
-              ...formData,
-              condition: e.target.value,
-              conditionCustom: e.target.value === CUSTOM_OPTION_VALUE ? formData.conditionCustom : ''
-            })}
+    <div className="bg-card border border-border rounded-2xl p-6 shadow-md sticky top-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2">
+          <config.icon className={config.iconClass} size={18} />
+          <h3 className="font-semibold text-foreground tracking-tight">
+            {isEditMode ? `Sửa quy tắc ${config.label}` : `Thêm quy tắc ${config.label}`}
+          </h3>
+        </div>
+        {/* Nút hủy edit */}
+        {isEditMode && (
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-lg hover:bg-muted"
+            title="Hủy chỉnh sửa"
           >
-            <option value="">Chọn điều kiện...</option>
-            {config.conditionOptions.map((condition) => (
-              <option key={condition} value={condition}>{condition}</option>
-            ))}
-            <option value={CUSTOM_OPTION_VALUE}>Thêm mới...</option>
-          </select>
-          {formData.condition === CUSTOM_OPTION_VALUE && (
-            <input
-              type="text"
-              className="mt-2 w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500 tracking-tight"
-              placeholder="Nhập điều kiện mới"
-              value={formData.conditionCustom}
-              onChange={(e) => setFormData({ ...formData, conditionCustom: e.target.value })}
-            />
-          )}
+            <X size={16} />
+          </button>
+        )}
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Category selector — chỉ hiện khi có nhiều category */}
+        {normalizedCategories.length > 1 && (
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1.5">Nhóm quy tắc</label>
+            <select
+              className={inputClass}
+              value={formData.category}
+              onChange={(e) => setFormData({ ...formData, category: e.target.value, action: "" })}
+            >
+              {normalizedCategories.map((key) => {
+                const cat = CATEGORIES[key.toUpperCase()] || CATEGORIES.RETENTION;
+                return <option key={key} value={key}>{cat.label}</option>;
+              })}
+            </select>
+          </div>
+        )}
+
+        {/* Tên quy tắc */}
+        <div>
+          <label className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1.5">Tên quy tắc</label>
+          <input
+            type="text"
+            className={inputClass}
+            placeholder="Ví dụ: Cảnh báo thời gian dừng khu vực"
+            value={formData.ruleName}
+            onChange={(e) => setFormData({ ...formData, ruleName: e.target.value })}
+          />
         </div>
 
+        {/* Metric */}
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-2 tracking-tight">{config.thresholdLabel}</label>
-          <div className="relative flex items-center gap-2">
-            <input 
+          <label className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1.5">Chỉ số đánh giá</label>
+          <select
+            className={inputClass}
+            value={formData.metricName}
+            onChange={(e) => setFormData({ ...formData, metricName: e.target.value })}
+          >
+            <option value="">Chọn chỉ số...</option>
+            {METRIC_OPTIONS.map((metric) => (
+              <option key={metric.value} value={metric.value}>{metric.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Operator + Threshold */}
+        <div className="grid grid-cols-12 gap-2">
+          <div className="col-span-4">
+            <label className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1.5">So sánh</label>
+            <select
+              className={inputClass}
+              value={formData.operator}
+              onChange={(e) => setFormData({ ...formData, operator: e.target.value })}
+            >
+              {OPERATOR_OPTIONS.map((op) => (
+                <option key={op} value={op}>{op}</option>
+              ))}
+            </select>
+          </div>
+          <div className="col-span-8">
+            <label className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
+              Ngưỡng {selectedMetric ? `(${selectedMetric.unit})` : ""}
+            </label>
+            <input
               type="number"
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm tabular-nums tracking-tight outline-none focus:ring-1 focus:ring-teal-500"
+              className={inputClass}
               placeholder={config.valuePlaceholder}
               min="0"
-              value={formData.value}
-              onChange={(e) => setFormData({...formData, value: e.target.value})}
+              value={formData.threshold}
+              onChange={(e) => setFormData({ ...formData, threshold: e.target.value })}
             />
-            <span className="text-xs font-medium text-slate-500 whitespace-nowrap tracking-tight">{config.unit}</span>
           </div>
         </div>
 
+        {/* Zone — dùng zones từ DB */}
+        {showZoneField && (
+          <div>
+            <label className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1.5">
+              Khu vực {requireZoneField ? "*" : ""}
+            </label>
+            <select
+              className={inputClass}
+              value={formData.zoneName}
+              onChange={(e) => setFormData({ ...formData, zoneName: e.target.value })}
+              required={requireZoneField}
+            >
+              <option value="">Chọn khu vực...</option>
+              {zones.map((zone) => (
+                <option key={zone.zone_id || zone.zoneId} value={zone.zone_id || zone.zoneId}>
+                  {zone.zone_name || zone.zoneName || zone.zone_id || zone.zoneId}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Hành động — input tự do thay vì dropdown hardcode */}
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-2 tracking-tight">Hành động</label>
-          <select 
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500 tracking-tight"
+          <label className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1.5">Hành động</label>
+          <input
+            type="text"
+            className={inputClass}
+            placeholder="Ví dụ: Liên hệ khách hàng để nhắc nhở"
             value={formData.action}
-            onChange={(e) => setFormData({
-              ...formData,
-              action: e.target.value,
-              actionCustom: e.target.value === CUSTOM_OPTION_VALUE ? formData.actionCustom : ''
-            })}
-          >
-            <option value="">Chọn hành động...</option>
-            {config.actionOptions.map((action) => (
-              <option key={action} value={action}>{action}</option>
-            ))}
-            <option value={CUSTOM_OPTION_VALUE}>Thêm mới...</option>
-          </select>
-          {formData.action === CUSTOM_OPTION_VALUE && (
-            <input
-              type="text"
-              className="mt-2 w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-teal-500 tracking-tight"
-              placeholder="Nhập hành động mới"
-              value={formData.actionCustom}
-              onChange={(e) => setFormData({ ...formData, actionCustom: e.target.value })}
-            />
-          )}
+            onChange={(e) => setFormData({ ...formData, action: e.target.value })}
+          />
         </div>
 
-        <div className="pt-2">
-          <button type="submit" className="w-full bg-teal-600 hover:bg-teal-500 text-white font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition-all shadow-md shadow-teal-100 tracking-tight">
-            <Plus size={18} /> Thêm vào bảng
+        {/* Submit */}
+        <div className="pt-1">
+          <button
+            type="submit"
+            className={`w-full text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all duration-200 shadow-sm hover:-translate-y-0.5 active:scale-[0.98] ${
+              isEditMode
+                ? "bg-gradient-to-r from-amber-500 to-amber-400 hover:shadow-md"
+                : "bg-gradient-accent hover:shadow-accent"
+            }`}
+          >
+            {isEditMode ? <><Pencil size={16} /> Cập nhật quy tắc</> : <><Plus size={16} /> Thêm vào bảng</>}
           </button>
         </div>
       </form>
 
-      {/* Rule preview in natural language */}
-      {selectedCondition && (
-        <div className="mt-6 p-3 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-          <p className="text-xs text-slate-500 tracking-tight">
-            "Hệ thống sẽ <span className="text-teal-600 font-medium">{selectedAction || '...'}</span> khi <span className="text-indigo-600 font-medium">{selectedCondition}</span> đạt từ <span className="font-medium tabular-nums tracking-tight">{formData.value || '0'} {config.unit}</span> trở lên."
+      {/* Preview điều kiện */}
+      {selectedMetric && formData.threshold !== "" && (
+        <div className="mt-5 p-3 bg-muted/50 rounded-xl border border-dashed border-border">
+          <p className="text-muted-foreground leading-relaxed">
+            Hệ thống sẽ{" "}
+            <span className="text-accent font-medium">{formData.action || "..."}</span>{" "}
+            khi{" "}
+            <span className="text-foreground font-medium">{selectedMetric.label}</span>{" "}
+            <span className="font-semibold">{formData.operator}</span>{" "}
+            <span className="font-semibold tabular-nums">{formData.threshold || "0"}</span>{" "}
+            {selectedMetric.unit}.
           </p>
         </div>
       )}
     </div>
   );
 };
+
 export default RuleForm;

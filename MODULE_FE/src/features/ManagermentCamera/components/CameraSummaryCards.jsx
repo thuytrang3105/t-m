@@ -1,29 +1,16 @@
 import { Camera, Wifi, WifiOff } from 'lucide-react';
+import StatCard from '../../../components/common/StatCard';
 
-const SummaryCard = ({ title, value, icon: Icon, iconClass }) => (
-  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div className="flex items-start justify-between">
-      <div>
-        <p className="text-[11px] font-medium tracking-tight text-slate-500">{title}</p>
-        <p className="mt-2 text-4xl font-semibold text-slate-900">{value}</p>
-      </div>
-      <div className={`rounded-xl p-3 ${iconClass}`}>
-        <Icon size={20} />
-      </div>
-    </div>
-  </div>
-);
-
-export const CameraSummaryCards = ({ cameras }) => {
-  const total = cameras.length;
-  const active = cameras.filter((cam) => cam.status === 'online').length;
-  const error = cameras.filter((cam) => cam.status === 'error').length;
+export const CameraSummaryCards = ({ cameras, metrics }) => {
+  const total  = metrics?.total  ?? cameras.length;
+  const active = metrics?.active ?? cameras.filter((c) => c.status === 'active' || c.status === 'online').length;
+  const error  = metrics?.error  ?? cameras.filter((c) => c.status === 'error'  || c.status === 'disconnect').length;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <SummaryCard title="Tong Camera" value={total} icon={Camera} iconClass="bg-indigo-100 text-indigo-600" />
-      <SummaryCard title="Luong Dang Hoat Dong" value={active} icon={Wifi} iconClass="bg-emerald-100 text-emerald-600" />
-      <SummaryCard title="Gap Su Co" value={error} icon={WifiOff} iconClass="bg-rose-100 text-rose-600" />
+      <StatCard variant="summary" title="Tổng camera"    value={total}  icon={Camera}  gradient="bg-gradient-accent"                          shadowClass="shadow-accent" />
+      <StatCard variant="summary" title="Đang hoạt động" value={active} icon={Wifi}    gradient="bg-gradient-to-br from-emerald-500 to-emerald-400" shadowClass="shadow-sm" />
+      <StatCard variant="summary" title="Cảnh báo"       value={error}  icon={WifiOff} gradient="bg-gradient-to-br from-rose-500 to-rose-400"      shadowClass="shadow-sm" />
     </div>
   );
 };
